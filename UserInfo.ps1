@@ -1,6 +1,11 @@
+#Uses a 'do/while' loop to return to start for multiple searches
+#Prompts user for an AD Username
 do {$LoginID = Read-Host "Enter the username to search: "
+                # Initially searches specifically for lockout status
                 $UserLock = Get-ADUser -identity $LoginID -property lockedout | Select-Object LockedOut
+                # Then searches for a formatted lost of properties
                 Get-ADUser -identity $LoginID -property * | Format-List -property name, mailnickname, mail, TelephoneNumber, lockedout, passwordexpired, enabled, passwordlastset, physicaldeliveryofficename 
+                    # If a user is locked prompts if you would like to unlock
                     If ($UserLock.lockedout -eq $True)
                         {Write-Host "User is locked."
                         Write-Host ""
@@ -12,7 +17,7 @@ do {$LoginID = Read-Host "Enter the username to search: "
                                 }
                             ElseIF ($UnlockChoice -eq "N")
                                 {Write-Host "User will remain locked"
-                                }
+                                }             
                             Else
                                 {"Incorrect Choice Please Try Again"
                                 }
