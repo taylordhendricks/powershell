@@ -1,8 +1,10 @@
 <#Domain Migration Script v0.1
-Created by: Taylor Hendricks (taylor.hendricks@hyland.com)
+Created by: admin-tium
 This command moves a list of comma separated servers in a CSV file from a current Domain to $NewDomain.
 https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.management/add-computer?view=powershell-5.1
 Example Command: Add-Computer -ComputerName Server01, Server02, localhost -DomainName Domain02 -LocalCredential Domain01\User01 -UnjoinDomainCredential Domain01\Admin01 -Credential Domain02\Admin01 -OUPath "OU=testOU,DC=domain,DC=Domain,DC=com" -Restart
+
+MUST BE RUN ON THE OLD/LEGACY DOMAIN, could be reworked to run from new domain but this was easier at the time of writing
 #>
 
 #region Log File Generation/Cleanup
@@ -41,10 +43,11 @@ $ListOfComputers = "PathToListofComputers.csv"
 #Fetching/Checking Credentials
 if ($CurrentDomainCreds -eq $null)
     {
-    $CurrentDomainCreds = Get-Credential -Message "PVI Domain Admin Credentials required" -UserName "$CurrentDomain\$env:username"
-    $NewDomainCreds = Get-Credential -Message "HylandQA Domain Admin Credentials required" -UserName "$NewDomain\$env:username"
+    #We mirror user names across domains so utilizing $env:username works for us, otherwise replace or leave blank
+    $CurrentDomainCreds = Get-Credential -Message "<Current> Domain Admin Credentials required" -UserName "$CurrentDomain\$env:username"
+    $NewDomainCreds = Get-Credential -Message "<New> Domain Admin Credentials required" -UserName "$NewDomain\$env:username"
     }
-else {Write-Host "`n`rCredentials Found`n`rUsing existing credentials`n`rIf new credentials need to be entered use close and re-open PowerShell ISE or set the variables to Null"}
+else {Write-Host "`n`rCredentials Found`n`rUsing existing credentials`n`rIf new credentials need to be entered use close and re-open PowerShell or set the variables to Null"}
 #endregion
 
 #region Migrate-Domain
@@ -62,6 +65,7 @@ Function Migrate-Domain
     $ServerList = import-csv -Path $ListOfComputers | foreach-object {
         $Server = $($_.ServerList)
         $NewOUPath = "OU=General Computer,DC=DomainName,DC=net"
+        #Can replace the above line with the below if your CSV contains an additional column named OUPath
         #$NewOUPath = $($_.OUPath)
         Write-Host "`n`rAttempting to migrate $Server to $NewDomain, OU Path is: $NewOUPath"
         #Testing to see if the machine is even online to migrate
@@ -70,9 +74,10 @@ Function Migrate-Domain
             Write-Host "`t$Server is ONLINE" -ForegroundColor Green
             try{
                 Add-Computer -ComputerName $Server -DomainName $NewDomain -LocalCredential $CurrentDomainCreds -UnjoinDomainCredential $CurrentDomainCreds -Credential $NewDomainCreds -OUPath $NewOUPath -Verbose
-                ##Rebooting from the Add-Computer function fails due to permissions, likely as a result of migrating using this instead
+                #Rebooting from the Add-Computer function fails due to permissions, likely as a result of migrating using this instead
+                #Can also use this section to run commands on the machine in addition to restart computer
                 Restart-Computer $Server -Credential $NewDomainCreds
-                ##Cleanup the ADObject that gets left behind
+                #Cleanup the ADObject that gets left behind without prompting
                 Remove-ADComputer -Identity $Server -Confirm:$False -verbose
             }
             catch{
