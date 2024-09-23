@@ -1,5 +1,4 @@
 <#Domain Migration Script v0.1
-Created by: admin-tium
 This command moves a list of comma separated servers in a CSV file from a current Domain to $NewDomain.
 https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.management/add-computer?view=powershell-5.1
 Example Command: Add-Computer -ComputerName Server01, Server02, localhost -DomainName Domain02 -LocalCredential Domain01\User01 -UnjoinDomainCredential Domain01\Admin01 -Credential Domain02\Admin01 -OUPath "OU=testOU,DC=domain,DC=Domain,DC=com" -Restart
