@@ -1,3 +1,44 @@
+# FSLogix  User Folder Search Tool (for when flip_flop wasnt enabled)
+#
+# Synopsis:
+# This PowerShell script provides a GUI-based tool for searching user profile folders
+# across multiple network shares. It enables users to quickly locate folders associated
+# with a given username, display their paths and sizes, and interact with the results.
+#
+# Features:
+# - Windows Forms-based GUI with a search bar, DataGridView, and progress indicators.
+# - Parallel searching across multiple network shares using background jobs.
+# - Reads share locations dynamically from an external INI file (`config.ini`).
+# - Resizable UI layout with dedicated panels for search input, results display, and status updates.
+# - Right-click context menu and double-click navigation for interacting with folder paths.
+# - Real-time status updates via a progress bar and status label.
+#
+# Prerequisites:
+# - Windows OS with .NET Framework (System.Windows.Forms).
+# - PowerShell Execution Policy allowing script execution.
+# - Access to the network shares specified in `config.ini`.
+#
+# Usage:
+# 1. Run the script (`User-folder-search-tool.ps1`).
+# 2. Enter a username in the search bar and click 'Search'.
+# 3. View results, including folder path and size.
+# 4. Right-click or double-click on results to interact.
+#
+# Customization:
+# - Adjust UI properties (e.g., form size, font, anchoring) as needed.
+# - Modify `config.ini` to define network shares dynamically.
+# EXAMPLE config.ini contents
+# [Shares]
+# Share1=\\site1-FSLogix-SVM01.thehelplessdesk.com\vol-profiles\contractor-profiles
+# Share2=\\Site1-FSLogix-SVM01.thehelplessdesk.com\vol-profiles\employee-profiles
+# Share3=\\Site2-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\contractor-profiles
+# Share4=\\Site2-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\employee-profiles
+# Share5=\\Site3-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\contractor-profiles
+# Share6=\\Site3-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\employee-profiles
+# Share7= ...(Remove if implementing, this is to show you can add more shares)
+# etc....
+#
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
