@@ -29,13 +29,10 @@
 # - Modify `config.ini` to define network shares dynamically.
 # EXAMPLE config.ini contents
 # [Shares]
-# Share1=\\site1-FSLogix-SVM01.thehelplessdesk.com\vol-profiles\contractor-profiles
-# Share2=\\Site1-FSLogix-SVM01.thehelplessdesk.com\vol-profiles\employee-profiles
-# Share3=\\Site2-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\contractor-profiles
-# Share4=\\Site2-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\employee-profiles
-# Share5=\\Site3-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\contractor-profiles
-# Share6=\\Site3-FSLogix-SVM02.thehelplessdesk.com\vol-profiles\employee-profiles
-# Share7= ...(Remove if implementing, this is to show you can add more shares)
+# Share1=\\server1\share1
+# Share2=\\server2\share2
+# Share3=\\server3\share3
+# Share4= ...(Remove if implementing, this is to show you can add more shares)
 # etc....
 #
 
@@ -60,6 +57,21 @@ function Get-FolderSize {
     }
     catch {
         return "Unable to calculate size"
+    }
+}
+
+# Function to check and create config.ini if missing
+function Ensure-ConfigIniExists {
+    param([string]$ConfigFilePath)
+    if (-Not (Test-Path $ConfigFilePath)) {
+        $sampleConfig = @"
+[Shares]
+Share1=\\server1\share1
+Share2=\\server2\share2
+Share3=\\server3\share3
+"@
+        $sampleConfig | Set-Content -Path $ConfigFilePath -Encoding UTF8
+        Write-Host "Created sample config.ini at: $ConfigFilePath"
     }
 }
 
@@ -107,6 +119,7 @@ function Get-ScriptDirectory {
 
 $scriptDir = Get-ScriptDirectory
 $iniPath   = Join-Path $scriptDir 'config.ini'
+Ensure-ConfigIniExists -ConfigFilePath $iniPath
 $Shares    = Get-SharesFromIni -ConfigFile $iniPath
 
 if (!$Shares) {
