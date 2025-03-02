@@ -65,9 +65,12 @@ Share2=\\server2\share2
 Share3=\\server3\share3
 
 [Settings]
-; Avoid going above size 20
-; Default = 11
+; Adjust the Font sie throughout the UI, avoid going above size 20
+; Default: FontSize=11
 FontSize=11
+; Toggle the LastAccessedDate Column visibility: 0 = Disabled, 1 = Enabled
+; Default: LastAccessedDate=0
+LastAccessedDate=0
 "@
         $sampleConfig | Set-Content -Path $ConfigFilePath -Encoding UTF8
         Write-Host "Created sample config.ini at: $ConfigFilePath"
@@ -124,7 +127,29 @@ function Get-FontSizeFromIni {
             return [int]$Matches[1]
         }
     }
-    return 10  # Default font size if not found
+    return 11  # Default font size if not found
+}
+
+function Get-LastAccessedSettingsFromIni {
+    param([string]$ConfigFile, [string]$Section = 'Settings', [string]$Key = 'LastAccessedDate')
+
+    $lines = Get-Content -Path $ConfigFile -ErrorAction SilentlyContinue
+    $insideTargetSection = $false
+
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if (!$trimmed -or $trimmed.StartsWith('#') -or $trimmed.StartsWith(';')) { continue }
+        
+        if ($trimmed -match '^\[(.+)\]$') {
+            $insideTargetSection = ($Matches[1] -eq $Section)
+            continue
+        }
+        
+        if ($insideTargetSection -and ($trimmed -match "^\s*$Key\s*=\s*(\d+)")) {
+            return [int]$Matches[1]
+        }
+    }
+    return 0  # Default font size if not found
 }
 
 function Get-LastModifiedDate {
@@ -158,6 +183,7 @@ function Get-ScriptDirectory {
 }
 
 $scriptDir = Get-ScriptDirectory
+$iconPath = Join-Path $scriptDir 'icon.ico'
 $iniPath   = Join-Path $scriptDir 'config.ini'
 Test-ConfigIniExists -ConfigFilePath $iniPath
 $global:Shares      = Get-SharesFromIni -ConfigFile $iniPath
@@ -175,6 +201,7 @@ $form.Size          = New-Object System.Drawing.Size(700, 500)
 $form.MinimumSize   = New-Object System.Drawing.Size(700, 500) 
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'Sizable'
+$form.Icon = [System.Drawing.Icon] $iconPath
 
 # ------------------------------------------------------------------------
 # TOP Layout: TableLayoutPanel for label, textbox, button
@@ -266,13 +293,23 @@ $colModified.Width        = 150
 $colModified.AutoSizeMode = 'DisplayedCells'
 $dataGrid.Columns.Add($colModified) | Out-Null
 
-# Accessed column (DisplayCells)
+# Last Accessed column (DisplayCells)
 $colAccessed = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
 $colAccessed.Name         = 'Accessed'
 $colAccessed.HeaderText   = 'Last Accessed'
 $colAccessed.Width        = 150
 $colAccessed.AutoSizeMode = 'DisplayedCells'
+# Check if this should even be shown or not
+$lastAccessEnabled = Get-LastAccessedSettingsFromIni -ConfigFile $iniPath -Section 'Settings' -Key 'LastAccessedDate'
+$colAccessed.Visible = ($lastAccessEnabled -eq 1)
 $dataGrid.Columns.Add($colAccessed) | Out-Null
+
+# Username column (DisplayCells)
+$colUser = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colUser.Name       = 'Username'
+$colUser.HeaderText = 'Username'
+$colUser.AutoSizeMode = 'DisplayedCells'
+$dataGrid.Columns.Insert(0, $colUser) | Out-Null
 
 # Context menu
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -378,6 +415,7 @@ $timerCheckJobs.Add_Tick({
                     foreach ($item in $results) {
                         Write-Host "[Timer Tick] Adding '$($item.Path)' to datagrid"
                         [void]$dataGrid.Rows.Add(
+                            $item.User,
                             $item.Path,
                             $item.Size,
                             $item.Modified,
@@ -410,9 +448,11 @@ $timerCheckJobs.Add_Tick({
 })
 
 $buttonSearch.Add_Click({
-    $username = $textboxUser.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($username)) {
-        [System.Windows.Forms.MessageBox]::Show("Please enter a username.")
+    # Parse the text box for multiple users, e.g. "alice, bob, charlie"
+    $users = $textboxUser.Text.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+
+    if ($users.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show("Please enter at least one username.")
         return
     }
 
@@ -422,8 +462,8 @@ $buttonSearch.Add_Click({
         Remove-Job -Job $oldJobs -Force | Out-Null
     }
 
-    $script:jobs      = @()
-    $script:jobsTotal = $Shares.Count
+    $script:jobs = @()
+    $script:jobsTotal = $Shares.Count * $users.Count
 
     $labelStatus.Text = "Status: Starting $($script:jobsTotal) jobs..."
 
@@ -431,76 +471,81 @@ $buttonSearch.Add_Click({
     $progressBar.Maximum = $script:jobsTotal
     $progressBar.Value   = 0
 
-    foreach ($share in $Shares) {
-        $scriptBlock = {
-            param($share, $username)
-            try {
-                function Convert-SizeToString {
-                    param([double]$Bytes)
-                    if    ($Bytes -lt 1KB) { return ("{0} B" -f $Bytes) }
-                    elseif($Bytes -lt 1MB) { return ("{0:N2} KB" -f ($Bytes / 1KB)) }
-                    elseif($Bytes -lt 1GB) { return ("{0:N2} MB" -f ($Bytes / 1MB)) }
-                    else                   { return ("{0:N2} GB" -f ($Bytes / 1GB)) }
-                }
-                function Get-FolderSize {
-                    param([string]$FolderPath)
-                    try {
-                        $totalBytes = (Get-ChildItem -Path $FolderPath -Recurse -ErrorAction SilentlyContinue |
-                                       Measure-Object -Property Length -Sum).Sum
-                        return Convert-SizeToString $totalBytes
-                    }
-                    catch {
-                        return "Unable to calculate size"
-                    }
-                }
-                function Get-LastModifiedDate {
-                    param([string]$FolderPath)
-                    try {
-                        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastWriteTime
-                    }
-                    catch {
-                        return "N/A"
-                    }
-                }
-                function Get-LastAccessedDate {
-                    param([string]$FolderPath)
-                    try {
-                        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastAccessTime
-                    }
-                    catch {
-                        return "N/A"
-                    }
-                }
+    foreach ($username in $users) {
+        foreach ($share in $Shares) {
 
-                $collected = @()
+            $scriptBlock = {
+                param($share, $username)
                 try {
-                    $dirs = Get-ChildItem -Path $share -Directory -ErrorAction SilentlyContinue
-                    $userDirs = $dirs | Where-Object { $_.Name -like "*_$username" }
-
-                    foreach ($dir in $userDirs) {
-                        $collected += [pscustomobject]@{
-                            Path     = $dir.FullName
-                            Size     = Get-FolderSize -FolderPath $dir.FullName
-                            Modified = Get-LastModifiedDate -FolderPath $dir.FullName
-                            Accessed = Get-LastAccessedDate -FolderPath $dir.FullName
+                    function Convert-SizeToString {
+                        param([double]$Bytes)
+                        if    ($Bytes -lt 1KB) { return ("{0} B" -f $Bytes) }
+                        elseif($Bytes -lt 1MB) { return ("{0:N2} KB" -f ($Bytes / 1KB)) }
+                        elseif($Bytes -lt 1GB) { return ("{0:N2} MB" -f ($Bytes / 1MB)) }
+                        else                   { return ("{0:N2} GB" -f ($Bytes / 1GB)) }
+                    }
+                    function Get-FolderSize {
+                        param([string]$FolderPath)
+                        try {
+                            $totalBytes = (Get-ChildItem -Path $FolderPath -Recurse -ErrorAction SilentlyContinue |
+                                           Measure-Object -Property Length -Sum).Sum
+                            return Convert-SizeToString $totalBytes
+                        }
+                        catch {
+                            return "Unable to calculate size"
                         }
                     }
+                    function Get-LastModifiedDate {
+                        param([string]$FolderPath)
+                        try {
+                            return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastWriteTime
+                        }
+                        catch {
+                            return "N/A"
+                        }
+                    }
+                    function Get-LastAccessedDate {
+                        param([string]$FolderPath)
+                        try {
+                            return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastAccessTime
+                        }
+                        catch {
+                            return "N/A"
+                        }
+                    }
+
+                    $collected = @()
+                    try {
+                        $dirs = Get-ChildItem -Path $share -Directory -ErrorAction SilentlyContinue
+                        $userDirs = $dirs | Where-Object { $_.Name -like "*_$username" }
+
+                        foreach ($dir in $userDirs) {
+                            $collected += [pscustomobject]@{
+                                User     = $username
+                                Path     = $dir.FullName
+                                Size     = Get-FolderSize -FolderPath $dir.FullName
+                                Modified = Get-LastModifiedDate -FolderPath $dir.FullName
+                                Accessed = Get-LastAccessedDate -FolderPath $dir.FullName
+                            }
+                        }
+                    }
+                    catch {
+                        $_ | Out-File "C:\\Temp\\JobError_$($share -replace '\\\\','-').log"
+                    }
+                    return $collected
                 }
                 catch {
-                    $_ | Out-File "C:\\Temp\\JobError_$($share -replace '\\\\','-').log"
+                    $_ | Out-File "C:\\Temp\\JobError_main_$($share -replace '\\\\','-').log"
                 }
-                return $collected
             }
-            catch {
-                $_ | Out-File "C:\\Temp\\JobError_main_$($share -replace '\\\\','-').log"
-            }
-        }
 
-        $job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $share, $username
-        Write-Host "[ButtonClick] Started job $($job.Id) for share $share. State: $($job.State)"
-        $script:jobs += $job
-        Write-Host "[ButtonClick] => Now $($script:jobs.Count) total jobs in array"
-    }
+            # **Now we create the job inside the share loop**:
+            $job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $share, $username
+            Write-Host "[ButtonClick] Started job $($job.Id) for share $share. State: $($job.State)"
+            $script:jobs += $job
+            Write-Host "[ButtonClick] => Now $($script:jobs.Count) total jobs in array"
+        }  
+    }      
 
     $timerCheckJobs.Start()
 })
