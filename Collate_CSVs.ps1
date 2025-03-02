@@ -1,7 +1,7 @@
 # Reads a folder of CSVs, combines them and then moves them to a '.\Processed\$DATE folder
 
 # Define the directory where the CSV files are located
-$sourceDirectory = "C:\Users\hendrickst\Downloads\CSV TestFolder"
+$sourceDirectory = ".\Downloads\CSV TestFolder"
 $processedFolder = "Processed"
 
 # Create a date-stamped subfolder in the Processed directory
