@@ -1,8 +1,8 @@
 #Run PowerShell as an administrator
 
 # Define the original task name and folder
-$OriginalTaskName = "riginalTaskName"
-$TaskFolder = "\Folder\"  # Specify the Azure subfolder in the Task Scheduler Library
+$OriginalTaskName = "OriginalTaskName"
+$TaskFolder = "\Folder\"  # Specify the subfolder in the Task Scheduler Library
 
 # Define the new task name
 $NewTaskName = "newTaskName"
