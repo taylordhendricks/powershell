@@ -61,7 +61,7 @@ function Get-FolderSize {
 }
 
 # Function to check and create config.ini if missing
-function Ensure-ConfigIniExists {
+function Test-ConfigIniExists {
     param([string]$ConfigFilePath)
     if (-Not (Test-Path $ConfigFilePath)) {
         $sampleConfig = @"
@@ -69,6 +69,9 @@ function Ensure-ConfigIniExists {
 Share1=\\server1\share1
 Share2=\\server2\share2
 Share3=\\server3\share3
+
+[Settings]
+FontSize=11
 "@
         $sampleConfig | Set-Content -Path $ConfigFilePath -Encoding UTF8
         Write-Host "Created sample config.ini at: $ConfigFilePath"
@@ -107,6 +110,48 @@ function Get-SharesFromIni {
     return $shareList
 }
 
+function Get-FontSizeFromIni {
+    param([string]$ConfigFile, [string]$Section = 'Settings', [string]$Key = 'FontSize')
+
+    $lines = Get-Content -Path $ConfigFile -ErrorAction SilentlyContinue
+    $insideTargetSection = $false
+
+    foreach ($line in $lines) {
+        $trimmed = $line.Trim()
+        if (!$trimmed -or $trimmed.StartsWith('#') -or $trimmed.StartsWith(';')) { continue }
+        
+        if ($trimmed -match '^\[(.+)\]$') {
+            $insideTargetSection = ($Matches[1] -eq $Section)
+            continue
+        }
+        
+        if ($insideTargetSection -and ($trimmed -match "^\s*$Key\s*=\s*(\d+)")) {
+            return [int]$Matches[1]
+        }
+    }
+    return 10  # Default font size if not found
+}
+
+function Get-LastModifiedDate {
+    param([string]$FolderPath)
+    try {
+        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastWriteTime
+    }
+    catch {
+        return "N/A"
+    }
+}
+
+function Get-LastAccessedDate {
+    param([string]$FolderPath)
+    try {
+        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastAccessTime
+    }
+    catch {
+        return "N/A"
+    }
+}
+
 function Get-ScriptDirectory {
     if ($PSScriptRoot) { return $PSScriptRoot }
     if ($MyInvocation.MyCommand.Path) {
@@ -120,7 +165,8 @@ function Get-ScriptDirectory {
 $scriptDir = Get-ScriptDirectory
 $iniPath   = Join-Path $scriptDir 'config.ini'
 Ensure-ConfigIniExists -ConfigFilePath $iniPath
-$Shares    = Get-SharesFromIni -ConfigFile $iniPath
+$global:Shares      = Get-SharesFromIni -ConfigFile $iniPath
+$global:FontSize    = Get-FontSizeFromIni -ConfigFile $iniPath
 
 if (!$Shares) {
     Write-Host "No shares found in [Shares] section of $iniPath"
@@ -128,40 +174,41 @@ if (!$Shares) {
 }
 
 $form               = New-Object System.Windows.Forms.Form
+$form.Font = New-Object System.Drawing.Font("Segoe UI", $FontSize, [System.Drawing.FontStyle]::Regular)
 $form.Text          = "User Folder Search"
 $form.Size          = New-Object System.Drawing.Size(700, 500)
+$form.MinimumSize   = New-Object System.Drawing.Size(700, 500) 
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'Sizable'
-
 
 # ------------------------------------------------------------------------
 # TOP Panel (for label, textbox, button)
 # ------------------------------------------------------------------------
 $panelTop = New-Object System.Windows.Forms.Panel
-$panelTop.Dock = 'Top'
-$panelTop.Height = 50  # shorter top panel so it doesn't overlap header
+$panelTop.Dock       = 'Top'
+$panelTop.Height     = 50  # shorter top panel so it doesn't overlap header
 
 # Label mid-left
-$labelUser = New-Object System.Windows.Forms.Label
-$labelUser.Text = "Enter username:"
-$labelUser.AutoSize = $true
-# place near vertical center => (y= 50/2 - ~8 offset)
-$labelUser.Location = New-Object System.Drawing.Point(20, 15)
-$labelUser.Anchor = [System.Windows.Forms.AnchorStyles]::Left
+$labelUser              = New-Object System.Windows.Forms.Label
+$labelUser.Text         = "Enter username:"
+$labelUser.AutoSize     = $true
+$labelUser.Font         = $form.Font
+$labelUser.Location     = New-Object System.Drawing.Point(20, 15) # place near vertical center => (y= 50/2 - ~8 offset)
+$labelUser.Anchor       = [System.Windows.Forms.AnchorStyles]::Left
 
 # TextBox to the right
-$textboxUser = New-Object System.Windows.Forms.TextBox
-$textboxUser.Width    = 150
-$textboxUser.Font     = New-Object System.Drawing.Font("Segoe UI", 12, [System.Drawing.FontStyle]::Regular)
-# approximate location
-$textboxUser.Location = New-Object System.Drawing.Point(160, 12)
-$textboxUser.Anchor   = [System.Windows.Forms.AnchorStyles]::Left #-bor [System.Windows.Forms.AnchorStyles]::Right
+$textboxUser            = New-Object System.Windows.Forms.TextBox
+$textboxUser.Width      = 150
+$textboxUser.Font       = $form.Font
+$textboxUser.Location   = New-Object System.Drawing.Point(160, 12) # approximate location
+$textboxUser.Anchor     = [System.Windows.Forms.AnchorStyles]::Left #-bor [System.Windows.Forms.AnchorStyles]::Right
 
 # Button on the mid-right
-$buttonSearch = New-Object System.Windows.Forms.Button
-$buttonSearch.Text  = "Search"
-$buttonSearch.Width = 80
-$buttonSearch.Dock = 'Right'
+$buttonSearch           = New-Object System.Windows.Forms.Button
+$buttonSearch.Font      = $form.Font
+$buttonSearch.Text      = "Search"
+$buttonSearch.Width     = 80
+$buttonSearch.Dock      = 'Right'
 
 
 [void]$panelTop.Controls.Add($labelUser)
@@ -176,34 +223,53 @@ $panelMiddle = New-Object System.Windows.Forms.Panel
 $panelMiddle.Dock = 'Fill'
 
 # DataGrid
-$dataGrid = New-Object System.Windows.Forms.DataGridView
-$dataGrid.Dock = 'Fill'
-$dataGrid.AllowUserToAddRows = $false
-$dataGrid.ReadOnly           = $true
-$dataGrid.AutoSizeColumnsMode = 'Fill'
-$dataGrid.SelectionMode      = 'FullRowSelect'
-$dataGrid.MultiSelect        = $false
-$dataGrid.Location = New-Object System.Drawing.Point(20, 20)
-$dataGrid.ColumnHeadersHeightSizeMode = [System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode]::DisableResizing
-$dataGrid.ColumnHeadersHeight = 40
-$dataGrid.AutoSizeRowsMode   = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::AllCells
-$dataGrid.DefaultCellStyle.WrapMode = [System.Windows.Forms.DataGridViewTriState]::True
+$dataGrid                       = New-Object System.Windows.Forms.DataGridView
+$dataGrid.Dock                  = 'Fill'
+$dataGrid.AllowUserToAddRows    = $false
+$dataGrid.ReadOnly              = $true
+$dataGrid.AutoSizeColumnsMode   = 'Fill'
+$dataGrid.SelectionMode         = 'FullRowSelect'
+$dataGrid.MultiSelect           = $false
+$dataGrid.Location              = New-Object System.Drawing.Point(20, 20)
+$dataGrid.ColumnHeadersHeightSizeMode = [System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode]::AutoSize
+$dataGrid.DefaultCellStyle.Font = $form.Font
+$dataGrid.ColumnHeadersHeight   = 40
+$dataGrid.AutoSizeRowsMode      = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::AllCells
+$dataGrid.AutoSizeColumnsMode   = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::None
+$dataGrid.DefaultCellStyle.WrapMode = [System.Windows.Forms.DataGridViewTriState]::False
 
 $colPath = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colPath.Name       = 'Path'
-$colPath.HeaderText = 'Folder Path'
+$colPath.Name           = 'Path'
+$colPath.HeaderText     = 'Folder Path'
+$colPath.Width          = 400  # Default width
+$colPath.AutoSizeMode   = 'Fill'  # Expands dynamically
 $dataGrid.Columns.Add($colPath) | Out-Null
 
 $colSize = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colSize.Name       = 'Size'
-$colSize.HeaderText = 'Folder Size'
+$colSize.Name           = 'Size'
+$colSize.HeaderText     = 'Size'
+$colSize.Width          = 80  # Fixed width
+$colSize.AutoSizeMode   = 'None'  # Prevents expansion
 $dataGrid.Columns.Add($colSize) | Out-Null
+
+$colModified = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colModified.Name       = 'Modified'
+$colModified.HeaderText = 'Last Modified'
+$colModified.Width      = 150  # Default width
+$colModified.AutoSizeMode = 'DisplayedCells'  # Adjusts slightly if needed
+$dataGrid.Columns.Add($colModified) | Out-Null
+
+$colAccessed = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+$colAccessed.Name       = 'Accessed'
+$colAccessed.HeaderText = 'Last Accessed'
+$colAccessed.Width      = 150  # Default width
+$colAccessed.AutoSizeMode = 'DisplayedCells'  # Adjusts slightly if needed
+$dataGrid.Columns.Add($colAccessed) | Out-Null
 
 # context menu
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$contextMenu.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Regular)
-$menuItemCopyPath    = $contextMenu.Items.Add("Copy Path")
-$menuItemOpenExplorer= $contextMenu.Items.Add("Open in Explorer")
+$menuItemCopyPath       = $contextMenu.Items.Add("Copy Path")
+$menuItemOpenExplorer   = $contextMenu.Items.Add("Open in Explorer")
 $dataGrid.ContextMenuStrip = $contextMenu
 
 $dataGrid.add_CellMouseDown({
@@ -242,27 +308,28 @@ $menuItemOpenExplorer.add_Click({
 # BOTTOM Panel (status + progress)
 # ------------------------------------------------------------------------
 $panelBottom = New-Object System.Windows.Forms.Panel
-$panelBottom.Dock = 'Bottom'
+$panelBottom.Dock   = 'Bottom'
 $panelBottom.Height = 60
 
 $labelStatus = New-Object System.Windows.Forms.Label
-$labelStatus.Text = "Status: Idle"
-$labelStatus.AutoSize = $true
-$labelStatus.Location = New-Object System.Drawing.Point(20, 20)
-$labelStatus.Anchor = [System.Windows.Forms.AnchorStyles]::Left
+$labelStatus.Font       = $form.Font
+$labelStatus.AutoSize   = $true
+$labelStatus.Text       = "Status: Idle..."
+$labelStatus.Location   = New-Object System.Drawing.Point(20, 20)
+$labelStatus.Anchor     = [System.Windows.Forms.AnchorStyles]::Left
 
 # Panel for Progress Bar to allow padding
 $progressPanel = New-Object System.Windows.Forms.Panel
-$progressPanel.Dock = 'Right'  # Keep it on the right edge
-$progressPanel.Width = 270  # Adjust width for padding
-$progressPanel.Padding = New-Object System.Windows.Forms.Padding(15, 10, 15, 10)  # Add padding
-$progressPanel.Height = $panelBottom.Height  # Match parent height
+$progressPanel.Dock     = 'Right'  # Keep it on the right edge
+$progressPanel.Width    = 270  # Adjust width for padding
+$progressPanel.Padding  = New-Object System.Windows.Forms.Padding(15, 10, 15, 10)  # Add padding
+$progressPanel.Height   = $panelBottom.Height  # Match parent height
 
 # Progress Bar inside this panel
 $progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Size = New-Object System.Drawing.Size(250, 15)  # Adjust height
-$progressBar.Dock = 'Right'  # Let it fill the container panel
-$progressBar.Style = 'Continuous'
+$progressBar.Size   = New-Object System.Drawing.Size(250, 15)  # Adjust height
+$progressBar.Dock   = 'Right'  # Let it fill the container panel
+$progressBar.Style  = 'Continuous'
 
 # Add ProgressBar to its container panel
 [void]$progressPanel.Controls.Add($progressBar)
@@ -272,9 +339,9 @@ $progressBar.Style = 'Continuous'
 [void]$panelBottom.Controls.Add($labelStatus)
 
 # Add them in top -> middle -> bottom order
-$form.Controls.Add($panelTop)
-$form.Controls.Add($panelMiddle)
 $form.Controls.Add($panelBottom)
+$form.Controls.Add($panelMiddle)
+$form.Controls.Add($panelTop)
 
 # ------------------------------------------------------------------------
 # Timer & background jobs
@@ -309,14 +376,12 @@ $timerCheckJobs.Add_Tick({
         }
 
         $completedCount = $script:jobsTotal - $script:jobs.Count
-        $form.Text        = "User Folder Search | Status: Searching... ($completedCount of $($script:jobsTotal) complete)"
         $labelStatus.Text = "Status: Searching... ($completedCount of $($script:jobsTotal) complete)"
         $progressBar.Value = $completedCount
 
         if ($script:jobs.Count -eq 0) {
             $timerCheckJobs.Stop()
             Write-Host "[Timer Tick] All jobs complete. ($completedCount of $($script:jobsTotal))"
-            $form.Text        = "User Folder Search | Status: Search Complete. ($completedCount of $($script:jobsTotal))"
             $labelStatus.Text = "Status: Search Complete. ($completedCount of $($script:jobsTotal))"
             $progressBar.Value = $progressBar.Maximum
         }
@@ -325,7 +390,6 @@ $timerCheckJobs.Add_Tick({
         $timerCheckJobs.Stop()
         if ($script:jobsTotal -eq 0) {
             Write-Host "[Timer Tick] No jobs => Idle"
-            $form.Text        = "User Folder Search | Status: Idle"
             $labelStatus.Text = "Status: Idle"
             $progressBar.Value = 0
         }
@@ -348,7 +412,6 @@ $buttonSearch.Add_Click({
     $script:jobs      = @()
     $script:jobsTotal = $Shares.Count
 
-    $form.Text        = "User Folder Search | Status: Searching..."
     $labelStatus.Text = "Status: Starting $($script:jobsTotal) jobs..."
 
     $progressBar.Minimum = 0
@@ -377,16 +440,36 @@ $buttonSearch.Add_Click({
                         return "Unable to calculate size"
                     }
                 }
-
+                function Get-LastModifiedDate {
+                    param([string]$FolderPath)
+                    try {
+                        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastWriteTime
+                    }
+                    catch {
+                        return "N/A"
+                    }
+                }
+                function Get-LastAccessedDate {
+                    param([string]$FolderPath)
+                    try {
+                        return (Get-Item -Path $FolderPath -ErrorAction SilentlyContinue).LastAccessTime
+                    }
+                    catch {
+                        return "N/A"
+                    }
+                }
+        
                 $collected = @()
                 try {
                     $dirs = Get-ChildItem -Path $share -Directory -ErrorAction SilentlyContinue
                     $userDirs = $dirs | Where-Object { $_.Name -like "*_$username" }
-
+        
                     foreach ($dir in $userDirs) {
                         $collected += [pscustomobject]@{
-                            Path = $dir.FullName
-                            Size = Get-FolderSize -FolderPath $dir.FullName
+                            Path      = $dir.FullName
+                            Modified  = Get-LastModifiedDate -FolderPath $dir.FullName
+                            Accessed  = Get-LastAccessedDate -FolderPath $dir.FullName
+                            Size      = Get-FolderSize -FolderPath $dir.FullName
                         }
                     }
                 }
