@@ -182,8 +182,25 @@ function Get-ScriptDirectory {
     )
 }
 
+function Get-ResourceAsStream {
+    param($Name)
+    $ProcessName = (Get-Process -Id $PID).Name
+    try {
+        $resStream = [System.Reflection.Assembly]::GetEntryAssembly().GetManifestResourceStream("$ProcessName.g.resources")
+        $kv = [System.Resources.ResourceReader]::new($resStream) | Where-Object Key -EQ $Name
+        $resStream = $kv.Value
+    } catch {}
+
+    if (-not $resStream) {
+        # fallback
+        $resStream = [IO.File]::OpenRead("$PSScriptRoot\$Name")
+    }
+    $resStream
+}
+
+$iconStream = Get-ResourceAsStream -Name 'icon.ico'
+
 $scriptDir = Get-ScriptDirectory
-$iconPath = Join-Path $scriptDir 'icon.ico'
 $iniPath   = Join-Path $scriptDir 'config.ini'
 
 Test-ConfigIniExists -ConfigFilePath $iniPath
@@ -202,7 +219,11 @@ $form.Size          = New-Object System.Drawing.Size(700, 500)
 $form.MinimumSize   = New-Object System.Drawing.Size(700, 500) 
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'Sizable'
-$form.Icon = [System.Drawing.Icon] $iconPath
+$form.Icon = [System.Drawing.Icon] $iconStream
+$form.ShowIcon = $true
+$form.ShowInTaskbar = $true
+
+$iconStream.Close()
 
 # ------------------------------------------------------------------------
 # TOP Layout: TableLayoutPanel for label, textbox, button
