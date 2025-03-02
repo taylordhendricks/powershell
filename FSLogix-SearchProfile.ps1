@@ -25,15 +25,8 @@
 # 4. Right-click or double-click on results to interact.
 #
 # Customization:
-# - Adjust UI properties (e.g., form size, font, anchoring) as needed.
-# - Modify `config.ini` to define network shares dynamically.
-# EXAMPLE config.ini contents
-# [Shares]
-# Share1=\\server1\share1
-# Share2=\\server2\share2
-# Share3=\\server3\share3
-# Share4= ...(Remove if implementing, this is to show you can add more shares)
-# etc....
+# - Modify [Shares] section in the `config.ini` to define network shares dynamically.
+# - Modify [Settings] section in the `config.ini` for Font scaling.
 #
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -66,11 +59,14 @@ function Test-ConfigIniExists {
     if (-Not (Test-Path $ConfigFilePath)) {
         $sampleConfig = @"
 [Shares]
+; Add as many shares as you want to check just be sure to place on it's own line and start with 'Share#='' where '#' is the next number
 Share1=\\server1\share1
 Share2=\\server2\share2
 Share3=\\server3\share3
 
 [Settings]
+; Avoid going above size 20
+; Default = 11
 FontSize=11
 "@
         $sampleConfig | Set-Content -Path $ConfigFilePath -Encoding UTF8
@@ -90,7 +86,6 @@ function Get-SharesFromIni {
 
     foreach ($line in $lines) {
         $trimmed = $line.Trim()
-
         if (!$trimmed -or $trimmed.StartsWith('#') -or $trimmed.StartsWith(';')) {
             continue
         }
@@ -164,7 +159,7 @@ function Get-ScriptDirectory {
 
 $scriptDir = Get-ScriptDirectory
 $iniPath   = Join-Path $scriptDir 'config.ini'
-Ensure-ConfigIniExists -ConfigFilePath $iniPath
+Test-ConfigIniExists -ConfigFilePath $iniPath
 $global:Shares      = Get-SharesFromIni -ConfigFile $iniPath
 $global:FontSize    = Get-FontSizeFromIni -ConfigFile $iniPath
 
@@ -174,7 +169,7 @@ if (!$Shares) {
 }
 
 $form               = New-Object System.Windows.Forms.Form
-$form.Font = New-Object System.Drawing.Font("Segoe UI", $FontSize, [System.Drawing.FontStyle]::Regular)
+$form.Font          = New-Object System.Drawing.Font("Segoe UI", $FontSize, [System.Drawing.FontStyle]::Regular)
 $form.Text          = "User Folder Search"
 $form.Size          = New-Object System.Drawing.Size(700, 500)
 $form.MinimumSize   = New-Object System.Drawing.Size(700, 500) 
@@ -182,94 +177,109 @@ $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'Sizable'
 
 # ------------------------------------------------------------------------
-# TOP Panel (for label, textbox, button)
+# TOP Layout: TableLayoutPanel for label, textbox, button
 # ------------------------------------------------------------------------
-$panelTop = New-Object System.Windows.Forms.Panel
-$panelTop.Dock       = 'Top'
-$panelTop.Height     = 50  # shorter top panel so it doesn't overlap header
+$tableTop = New-Object System.Windows.Forms.TableLayoutPanel
+$tableTop.Dock = 'Top'
+$tableTop.AutoSize = $true
+$tableTop.AutoSizeMode = 'GrowAndShrink'
+$tableTop.RowCount = 1
+$tableTop.ColumnCount = 3
 
-# Label mid-left
+# Column 0: auto-size for label
+$colStyleLabel = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)
+$tableTop.ColumnStyles.Add($colStyleLabel)
+
+# Column 1: fill for the textbox
+$colStyleText = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)
+$tableTop.ColumnStyles.Add($colStyleText)
+
+# Column 2: auto-size for the button
+$colStyleButton = New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::AutoSize)
+$tableTop.ColumnStyles.Add($colStyleButton)
+
+# Label
 $labelUser              = New-Object System.Windows.Forms.Label
 $labelUser.Text         = "Enter username:"
 $labelUser.AutoSize     = $true
 $labelUser.Font         = $form.Font
-$labelUser.Location     = New-Object System.Drawing.Point(20, 15) # place near vertical center => (y= 50/2 - ~8 offset)
-$labelUser.Anchor       = [System.Windows.Forms.AnchorStyles]::Left
+$labelUser.Margin       = New-Object System.Windows.Forms.Padding(5, 3, 5, 3)
 
-# TextBox to the right
+# TextBox
 $textboxUser            = New-Object System.Windows.Forms.TextBox
-$textboxUser.Width      = 150
 $textboxUser.Font       = $form.Font
-$textboxUser.Location   = New-Object System.Drawing.Point(160, 12) # approximate location
-$textboxUser.Anchor     = [System.Windows.Forms.AnchorStyles]::Left #-bor [System.Windows.Forms.AnchorStyles]::Right
+$textboxUser.Dock       = 'Fill'
 
-# Button on the mid-right
+# Button
 $buttonSearch           = New-Object System.Windows.Forms.Button
 $buttonSearch.Font      = $form.Font
 $buttonSearch.Text      = "Search"
-$buttonSearch.Width     = 80
-$buttonSearch.Dock      = 'Right'
+$buttonSearch.AutoSize  = $true
 
 
-[void]$panelTop.Controls.Add($labelUser)
-[void]$panelTop.Controls.Add($textboxUser)
-[void]$panelTop.Controls.Add($buttonSearch)
+# Add them to the TableLayout
+[void]$tableTop.Controls.Add($labelUser,   0, 0)  # column 0
+[void]$tableTop.Controls.Add($textboxUser, 1, 0)  # column 1
+[void]$tableTop.Controls.Add($buttonSearch,2, 0)  # column 2
+
 $form.AcceptButton = $buttonSearch
 
 # ------------------------------------------------------------------------
-# MIDDLE Panel (Fill) => holds the DataGridView
+# MIDDLE Panel => holds the DataGridView
 # ------------------------------------------------------------------------
 $panelMiddle = New-Object System.Windows.Forms.Panel
 $panelMiddle.Dock = 'Fill'
 
-# DataGrid
 $dataGrid                       = New-Object System.Windows.Forms.DataGridView
 $dataGrid.Dock                  = 'Fill'
 $dataGrid.AllowUserToAddRows    = $false
 $dataGrid.ReadOnly              = $true
-$dataGrid.AutoSizeColumnsMode   = 'Fill'
+$dataGrid.DefaultCellStyle.Font = $form.Font
 $dataGrid.SelectionMode         = 'FullRowSelect'
 $dataGrid.MultiSelect           = $false
-$dataGrid.Location              = New-Object System.Drawing.Point(20, 20)
-$dataGrid.ColumnHeadersHeightSizeMode = [System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode]::AutoSize
-$dataGrid.DefaultCellStyle.Font = $form.Font
-$dataGrid.ColumnHeadersHeight   = 40
-$dataGrid.AutoSizeRowsMode      = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::AllCells
-$dataGrid.AutoSizeColumnsMode   = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::None
-$dataGrid.DefaultCellStyle.WrapMode = [System.Windows.Forms.DataGridViewTriState]::False
 
+$dataGrid.AutoSizeColumnsMode   = 'None'
+$dataGrid.AutoSizeRowsMode      = [System.Windows.Forms.DataGridViewAutoSizeRowsMode]::AllCells
+$dataGrid.ColumnHeadersHeightSizeMode = [System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode]::AutoSize
+
+# Path column (Fill)
 $colPath = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colPath.Name           = 'Path'
-$colPath.HeaderText     = 'Folder Path'
-$colPath.Width          = 400  # Default width
-$colPath.AutoSizeMode   = 'Fill'  # Expands dynamically
+$colPath.Name         = 'Path'
+$colPath.HeaderText   = 'Folder Path'
+$colPath.Width        = 400
+$colPath.AutoSizeMode = 'Fill'
 $dataGrid.Columns.Add($colPath) | Out-Null
 
+# Size column (fixed)
 $colSize = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colSize.Name           = 'Size'
-$colSize.HeaderText     = 'Size'
-$colSize.Width          = 80  # Fixed width
-$colSize.AutoSizeMode   = 'None'  # Prevents expansion
+$colSize.Name         = 'Size'
+$colSize.HeaderText   = 'Size'
+$colSize.Width        = 80
+$colSize.AutoSizeMode = 'None'
 $dataGrid.Columns.Add($colSize) | Out-Null
 
+# Modified column (DisplayCells)
 $colModified = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colModified.Name       = 'Modified'
-$colModified.HeaderText = 'Last Modified'
-$colModified.Width      = 150  # Default width
-$colModified.AutoSizeMode = 'DisplayedCells'  # Adjusts slightly if needed
+$colModified.Name         = 'Modified'
+$colModified.HeaderText   = 'Last Modified'
+$colModified.Width        = 150
+$colModified.AutoSizeMode = 'DisplayedCells'
 $dataGrid.Columns.Add($colModified) | Out-Null
 
+# Accessed column (DisplayCells)
 $colAccessed = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-$colAccessed.Name       = 'Accessed'
-$colAccessed.HeaderText = 'Last Accessed'
-$colAccessed.Width      = 150  # Default width
-$colAccessed.AutoSizeMode = 'DisplayedCells'  # Adjusts slightly if needed
+$colAccessed.Name         = 'Accessed'
+$colAccessed.HeaderText   = 'Last Accessed'
+$colAccessed.Width        = 150
+$colAccessed.AutoSizeMode = 'DisplayedCells'
 $dataGrid.Columns.Add($colAccessed) | Out-Null
 
-# context menu
+# Context menu
 $contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
-$menuItemCopyPath       = $contextMenu.Items.Add("Copy Path")
-$menuItemOpenExplorer   = $contextMenu.Items.Add("Open in Explorer")
+$contextMenu.Font = New-Object System.Drawing.Font("Segoe UI", $FontSize, [System.Drawing.FontStyle]::Regular)
+
+$menuItemCopyPath     = $contextMenu.Items.Add("Copy Path")
+$menuItemOpenExplorer = $contextMenu.Items.Add("Open in Explorer")
 $dataGrid.ContextMenuStrip = $contextMenu
 
 $dataGrid.add_CellMouseDown({
@@ -318,30 +328,28 @@ $labelStatus.Text       = "Status: Idle..."
 $labelStatus.Location   = New-Object System.Drawing.Point(20, 20)
 $labelStatus.Anchor     = [System.Windows.Forms.AnchorStyles]::Left
 
-# Panel for Progress Bar to allow padding
+# Panel for Progress Bar
 $progressPanel = New-Object System.Windows.Forms.Panel
-$progressPanel.Dock     = 'Right'  # Keep it on the right edge
-$progressPanel.Width    = 270  # Adjust width for padding
-$progressPanel.Padding  = New-Object System.Windows.Forms.Padding(15, 10, 15, 10)  # Add padding
-$progressPanel.Height   = $panelBottom.Height  # Match parent height
+$progressPanel.Dock     = 'Right'
+$progressPanel.Width    = 270
+$progressPanel.Padding  = New-Object System.Windows.Forms.Padding(15, 10, 15, 10)
+$progressPanel.Height   = $panelBottom.Height
 
-# Progress Bar inside this panel
 $progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Size   = New-Object System.Drawing.Size(250, 15)  # Adjust height
-$progressBar.Dock   = 'Right'  # Let it fill the container panel
+$progressBar.Size   = New-Object System.Drawing.Size(250, 15)
+$progressBar.Dock   = 'Right'
 $progressBar.Style  = 'Continuous'
 
-# Add ProgressBar to its container panel
 [void]$progressPanel.Controls.Add($progressBar)
-
-# Now add this container to the bottom panel
 [void]$panelBottom.Controls.Add($progressPanel)
 [void]$panelBottom.Controls.Add($labelStatus)
 
+# ------------------------------------------------------------------------
 # Add them in top -> middle -> bottom order
+# ------------------------------------------------------------------------
 $form.Controls.Add($panelBottom)
 $form.Controls.Add($panelMiddle)
-$form.Controls.Add($panelTop)
+$form.Controls.Add($tableTop)  # your top 'panel' is now a TableLayoutPanel
 
 # ------------------------------------------------------------------------
 # Timer & background jobs
@@ -369,7 +377,12 @@ $timerCheckJobs.Add_Tick({
                 if ($results) {
                     foreach ($item in $results) {
                         Write-Host "[Timer Tick] Adding '$($item.Path)' to datagrid"
-                        [void]$dataGrid.Rows.Add($item.Path, $item.Size)
+                        [void]$dataGrid.Rows.Add(
+                            $item.Path,
+                            $item.Size,
+                            $item.Modified,
+                            $item.Accessed
+                        )
                     }
                 }
             }
@@ -458,28 +471,28 @@ $buttonSearch.Add_Click({
                         return "N/A"
                     }
                 }
-        
+
                 $collected = @()
                 try {
                     $dirs = Get-ChildItem -Path $share -Directory -ErrorAction SilentlyContinue
                     $userDirs = $dirs | Where-Object { $_.Name -like "*_$username" }
-        
+
                     foreach ($dir in $userDirs) {
                         $collected += [pscustomobject]@{
-                            Path      = $dir.FullName
-                            Modified  = Get-LastModifiedDate -FolderPath $dir.FullName
-                            Accessed  = Get-LastAccessedDate -FolderPath $dir.FullName
-                            Size      = Get-FolderSize -FolderPath $dir.FullName
+                            Path     = $dir.FullName
+                            Size     = Get-FolderSize -FolderPath $dir.FullName
+                            Modified = Get-LastModifiedDate -FolderPath $dir.FullName
+                            Accessed = Get-LastAccessedDate -FolderPath $dir.FullName
                         }
                     }
                 }
                 catch {
-                    $_ | Out-File "C:\Temp\JobError_$($share -replace '\\','-').log"
+                    $_ | Out-File "C:\\Temp\\JobError_$($share -replace '\\\\','-').log"
                 }
                 return $collected
             }
             catch {
-                $_ | Out-File "C:\Temp\JobError_main_$($share -replace '\\','-').log"
+                $_ | Out-File "C:\\Temp\\JobError_main_$($share -replace '\\\\','-').log"
             }
         }
 
