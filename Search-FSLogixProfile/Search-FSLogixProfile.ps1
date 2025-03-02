@@ -185,6 +185,7 @@ function Get-ScriptDirectory {
 $scriptDir = Get-ScriptDirectory
 $iconPath = Join-Path $scriptDir 'icon.ico'
 $iniPath   = Join-Path $scriptDir 'config.ini'
+
 Test-ConfigIniExists -ConfigFilePath $iniPath
 $global:Shares      = Get-SharesFromIni -ConfigFile $iniPath
 $global:FontSize    = Get-FontSizeFromIni -ConfigFile $iniPath
